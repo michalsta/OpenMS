@@ -7,7 +7,6 @@
 // --------------------------------------------------------------------------
 
 #include <memory>
-#include <random>
 #include <set>
 
 #include "OpenMS/CONCEPT/Exception.h"
@@ -20,6 +19,8 @@
 #include "PIPECHO/MzDiff.h"
 #include "PIPECHO/PeakTypes.h"
 #include "PIPECHO/Run.h"
+#include "PIPECHO/RunStatistics.h"
+#include "PIPECHO/Score.h"
 #include "PIPECHO/Util.h"
 #include "PIPECHO/Window.h"
 
@@ -33,6 +34,8 @@ namespace OpenMS {
   using OpenMS::PipEcho::Peak;
   using OpenMS::PipEcho::PeakCmp;
   using OpenMS::PipEcho::Run;
+  using OpenMS::PipEcho::RunStatistics;
+  using OpenMS::PipEcho::Score;
   using OpenMS::PipEcho::Window;
 
   /****************************************************************************/
@@ -55,11 +58,13 @@ namespace OpenMS {
                             RunMap&);
 
     /// Match identified features with unidentified features.
-    void link_donors_and_acceptors(const DonorMap&, AcceptorMap&);
+    void link_donors_and_acceptors(const RunStatistics&,
+                                   const DonorMap&, AcceptorMap&);
 
     /// Search for a matching acceptor.
     Acceptor::match_t
-    find_acceptor_for(const AcceptorMap&,
+    find_acceptor_for(const RunStatistics&,
+                      const AcceptorMap&,
                       const Donor&,
                       const Window&,
                       const std::optional<double> = {});
@@ -186,12 +191,13 @@ namespace OpenMS {
                          "matching donors and acceptors");
 
     for (auto& acceptor_run : runs) {
+      RunStatistics stats(acceptor_run.second);
       AcceptorMap& acceptors = acceptor_run.second.acceptors;
 
       for (auto& donor_run : runs) {
         if (donor_run.first != acceptor_run.first) {
           DonorMap& donors = donor_run.second.donors;
-          impl.link_donors_and_acceptors(donors, acceptors);
+          impl.link_donors_and_acceptors(stats, donors, acceptors);
         }
 
         logger.setProgress(++progress);
@@ -251,14 +257,20 @@ namespace OpenMS {
   }
 
   /****************************************************************************/
-  void PipEchoImpl::link_donors_and_acceptors(const DonorMap& donors,
+  void PipEchoImpl::link_donors_and_acceptors(const RunStatistics& stats,
+                                              const DonorMap& donors,
                                               AcceptorMap& acceptors)
   {
     for (auto& donor : donors.storage) {
       for (auto window=initial_window(*donor); window.has_value();
            window = next_window(window))
         {
-          const auto target = find_acceptor_for(acceptors, *donor, *window);
+          const auto target =
+            find_acceptor_for(stats,
+                              acceptors,
+                              *donor,
+                              *window);
+
           if (target.has_value()) {
             target->second->update_donor(&Acceptor::target, target, *donor);
           }
@@ -267,7 +279,8 @@ namespace OpenMS {
           Acceptor::match_t decoy = {}; // No std::optional::and_then in C++ 20 :(
 
           if (random_donor.has_value()) {
-            decoy = find_acceptor_for(acceptors,
+            decoy = find_acceptor_for(stats,
+                                      acceptors,
                                       *donor,
                                       *window,
                                       (*random_donor)->feature.getRT());
@@ -286,15 +299,12 @@ namespace OpenMS {
 
   /****************************************************************************/
   Acceptor::match_t
-  PipEchoImpl::find_acceptor_for(const AcceptorMap& acceptors,
+  PipEchoImpl::find_acceptor_for(const RunStatistics& stats,
+                                 const AcceptorMap& acceptors,
                                  const Donor& donor,
                                  const Window& window,
                                  const std::optional<double> rt_override)
   {
-    // FIXME: Remove these later.
-    std::random_device randev;
-    std::mt19937 randgen(randev());
-
     // FIXME: What does the paper say about finding acceptor peaks?
     // In FlashLFQ they do some weird envelope cutting and don't use
     // the actual found peak (FindIndividualAcceptorPeak).
@@ -306,10 +316,9 @@ namespace OpenMS {
       index, window.grid_neighbors, Acceptor::match_t{},
       [&](Acceptor::match_t best_match, Acceptor& acceptor) -> Acceptor::match_t {
         if (acceptor.is_donor_compatible(donor, window)) {
-          // FIXME: Fake score given here!
-          double score = std::generate_canonical<double, 10>(randgen);
+          Score score = stats.score(donor.feature, acceptor.feature);
 
-          if (!best_match.has_value() || best_match->first < score) {
+          if (!best_match.has_value() || best_match->first.mbr_score < score.mbr_score) {
             return std::make_pair(score, &acceptor);
           }
         }
