@@ -24,7 +24,7 @@ MapAlignmentEvaluationAlgorithm.h
 MapAlignmentEvaluationAlgorithmPrecision.h
 MapAlignmentEvaluationAlgorithmRecall.h
 MapAlignmentTransformer.h
-PipEcho.h
+PipEchoAlgorithm.h
 PoseClusteringAffineSuperimposer.h
 PoseClusteringShiftSuperimposer.h
 QTClusterFinder.h
