@@ -73,6 +73,38 @@ START_SECTION((virtual void run()))
   // Check that the HEAVY:LIGHT ratio is close to the expected 3:1 ratio
   TOLERANCE_ABSOLUTE(0.2);
   TEST_REAL_SIMILAR(H/L, 3.0);
+  
+  // Check that the mass trace metavalues are set
+  FeatureMap feature_map = algorithm.getFeatureMap();
+  TEST_NOT_EQUAL(feature_map.size(), 0);
+  
+  // Check first feature has the expected metavalues
+  if (!feature_map.empty())
+  {
+    const Feature& f = feature_map[0];
+    TEST_EQUAL(f.metaValueExists("masstrace_intensity"), true);
+    TEST_EQUAL(f.metaValueExists("masstrace_centroid_rt"), true);
+    TEST_EQUAL(f.metaValueExists("masstrace_centroid_mz"), true);
+    TEST_EQUAL(f.metaValueExists("num_of_masstraces"), true);
+    
+    // Verify the metavalues are vectors/numeric
+    if (f.metaValueExists("masstrace_intensity"))
+    {
+      std::vector<double> intensities = f.getMetaValue("masstrace_intensity");
+      TEST_NOT_EQUAL(intensities.size(), 0);
+      // All intensities should be non-negative
+      for (double intensity : intensities)
+      {
+        TEST_EQUAL(intensity >= 0.0, true);
+      }
+    }
+    
+    if (f.metaValueExists("num_of_masstraces"))
+    {
+      Size num_traces = f.getMetaValue("num_of_masstraces");
+      TEST_NOT_EQUAL(num_traces, 0);
+    }
+  }
 }
 END_SECTION
 
