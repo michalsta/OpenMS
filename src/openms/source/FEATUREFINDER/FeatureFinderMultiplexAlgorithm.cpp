@@ -31,6 +31,7 @@
 
 #include <vector>
 #include <numeric>
+#include <limits>
 #include <fstream>
 #include <iostream>
 #include <ostream>
@@ -679,8 +680,9 @@ namespace OpenMS
             }
             else
             {
-              masstrace_centroid_rt.push_back(0.0);
-              masstrace_centroid_mz.push_back(0.0);
+              // Use NaN for mass traces with no intensity to avoid confusion with actual (0,0) positions
+              masstrace_centroid_rt.push_back(std::numeric_limits<double>::quiet_NaN());
+              masstrace_centroid_mz.push_back(std::numeric_limits<double>::quiet_NaN());
             }
 
             if ((mass_trace.width() == 0) || (mass_trace.height() == 0))
@@ -902,8 +904,9 @@ namespace OpenMS
             }
             else
             {
-              masstrace_centroid_rt.push_back(0.0);
-              masstrace_centroid_mz.push_back(0.0);
+              // Use NaN for mass traces with no intensity to avoid confusion with actual (0,0) positions
+              masstrace_centroid_rt.push_back(std::numeric_limits<double>::quiet_NaN());
+              masstrace_centroid_mz.push_back(std::numeric_limits<double>::quiet_NaN());
             }
 
             if ((mass_trace.width() == 0) || (mass_trace.height() == 0))
