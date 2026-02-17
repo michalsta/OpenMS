@@ -597,6 +597,16 @@ namespace OpenMS
           double rt(0);
           double mz(0);
           double intensity_sum(0);
+          
+          // Store mass trace intensities for metavalue
+          std::vector<double> masstrace_intensities;
+          std::vector<double> masstrace_centroid_rt;
+          std::vector<double> masstrace_centroid_mz;
+          
+          PeakIntegrator pi;
+          Param pi_param = pi.getDefaults();
+          pi_param.setValue("integration_type","trapezoid");
+          pi.setParameters(pi_param);
 
           // loop over isotopes i.e. mass traces of the peptide
           for (size_t isotope = 0; isotope < isotopes_per_peptide_max_; ++isotope)
@@ -607,6 +617,10 @@ namespace OpenMS
             satellites_isotope = satellites.equal_range(idx);
 
             DBoundingBox<2> mass_trace;
+            MSChromatogram chromatogram;
+            double trace_rt_sum = 0;
+            double trace_mz_sum = 0;
+            double trace_intensity_sum = 0;
 
             // loop over satellites for this isotope i.e. mass trace
             for (std::multimap<size_t, MultiplexSatelliteCentroided >::const_iterator satellite_it = satellites_isotope.first; satellite_it != satellites_isotope.second; ++satellite_it)
@@ -621,14 +635,52 @@ namespace OpenMS
               MSSpectrum::ConstIterator it_mz = it_rt->begin();
               std::advance(it_mz, mz_idx);
 
+              double rt_temp = it_rt->getRT();
+              double mz_temp = it_mz->getMZ();
+              double intensity_temp = it_mz->getIntensity();
+
               if (isotope == 0)
               {
-                rt += it_rt->getRT() * it_mz->getIntensity();
-                mz += it_mz->getMZ() * it_mz->getIntensity();
-                intensity_sum += it_mz->getIntensity();
+                rt += rt_temp * intensity_temp;
+                mz += mz_temp * intensity_temp;
+                intensity_sum += intensity_temp;
               }
 
-              mass_trace.enlarge(it_rt->getRT(), it_mz->getMZ());
+              mass_trace.enlarge(rt_temp, mz_temp);
+              chromatogram.push_back(ChromatogramPeak(rt_temp, intensity_temp));
+              
+              trace_rt_sum += rt_temp * intensity_temp;
+              trace_mz_sum += mz_temp * intensity_temp;
+              trace_intensity_sum += intensity_temp;
+            }
+
+            // Compute integrated intensity for this mass trace
+            chromatogram.sortByPosition();
+            double trace_integrated_intensity = 0.0;
+            if (chromatogram.size() > 1)
+            {
+              double rt_start = chromatogram.begin()->getPos();
+              double rt_end = chromatogram.back().getPos();
+              PeakIntegrator::PeakArea pa = pi.integratePeak(chromatogram, rt_start, rt_end);
+              trace_integrated_intensity = pa.area;
+            }
+            else if (chromatogram.size() == 1)
+            {
+              trace_integrated_intensity = chromatogram.begin()->getIntensity();
+            }
+            
+            masstrace_intensities.push_back(trace_integrated_intensity);
+            
+            // Compute intensity-weighted centroid RT and m/z for this mass trace
+            if (trace_intensity_sum > 0)
+            {
+              masstrace_centroid_rt.push_back(trace_rt_sum / trace_intensity_sum);
+              masstrace_centroid_mz.push_back(trace_mz_sum / trace_intensity_sum);
+            }
+            else
+            {
+              masstrace_centroid_rt.push_back(0.0);
+              masstrace_centroid_mz.push_back(0.0);
             }
 
             if ((mass_trace.width() == 0) || (mass_trace.height() == 0))
@@ -663,6 +715,12 @@ namespace OpenMS
           feature.setIntensity(peptide_intensities[peptide]);
           feature.setCharge(patterns[pattern].getCharge());
           feature.setOverallQuality(1.0);
+          
+          // Set mass trace metavalues (similar to FeatureFinderMetabo)
+          feature.setMetaValue("masstrace_intensity", masstrace_intensities);
+          feature.setMetaValue("masstrace_centroid_rt", masstrace_centroid_rt);
+          feature.setMetaValue("masstrace_centroid_mz", masstrace_centroid_mz);
+          feature.setMetaValue("num_of_masstraces", masstrace_intensities.size());
 
           // Check that the feature eluted long enough.
           // DBoundingBox<2> box = feature.getConvexHull().getBoundingBox();    // convex hull of the entire peptide feature
@@ -767,6 +825,16 @@ namespace OpenMS
           double rt(0);
           double mz(0);
           double intensity_sum(0);
+          
+          // Store mass trace intensities for metavalue
+          std::vector<double> masstrace_intensities;
+          std::vector<double> masstrace_centroid_rt;
+          std::vector<double> masstrace_centroid_mz;
+          
+          PeakIntegrator pi;
+          Param pi_param = pi.getDefaults();
+          pi_param.setValue("integration_type","trapezoid");
+          pi.setParameters(pi_param);
 
           // loop over isotopes i.e. mass traces of the peptide
           for (size_t isotope = 0; isotope < isotopes_per_peptide_max_; ++isotope)
@@ -777,21 +845,65 @@ namespace OpenMS
             satellites_isotope = satellites.equal_range(idx);
 
             DBoundingBox<2> mass_trace;
+            MSChromatogram chromatogram;
+            double trace_rt_sum = 0;
+            double trace_mz_sum = 0;
+            double trace_intensity_sum = 0;
 
             // loop over satellites for this isotope i.e. mass trace
             for (std::multimap<size_t, MultiplexSatelliteProfile >::const_iterator satellite_it = satellites_isotope.first; satellite_it != satellites_isotope.second; ++satellite_it)
             {
+              double rt_temp = (satellite_it->second).getRT();
+              double mz_temp = (satellite_it->second).getMZ();
+              double intensity_temp = (satellite_it->second).getIntensity();
+              
               if (isotope == 0)
               {
                 // Satellites of zero intensity makes sense (borders of peaks), but mess up feature/consensus construction.
-                double intensity_temp = (satellite_it->second).getIntensity() + 0.0001;
+                double intensity_temp_adjusted = intensity_temp + 0.0001;
 
-                rt += (satellite_it->second).getRT() * intensity_temp;
-                mz += (satellite_it->second).getMZ() * intensity_temp;
-                intensity_sum += intensity_temp;
+                rt += rt_temp * intensity_temp_adjusted;
+                mz += mz_temp * intensity_temp_adjusted;
+                intensity_sum += intensity_temp_adjusted;
               }
 
-              mass_trace.enlarge((satellite_it->second).getRT(), (satellite_it->second).getMZ());
+              mass_trace.enlarge(rt_temp, mz_temp);
+              chromatogram.push_back(ChromatogramPeak(rt_temp, intensity_temp));
+              
+              // Use adjusted intensity for centroid calculation
+              double intensity_for_centroid = intensity_temp + 0.0001;
+              trace_rt_sum += rt_temp * intensity_for_centroid;
+              trace_mz_sum += mz_temp * intensity_for_centroid;
+              trace_intensity_sum += intensity_for_centroid;
+            }
+
+            // Compute integrated intensity for this mass trace
+            makePeakPositionUnique(chromatogram, IntensityAveragingMethod::MEDIAN);
+            double trace_integrated_intensity = 0.0;
+            if (chromatogram.size() > 1)
+            {
+              double rt_start = chromatogram.begin()->getPos();
+              double rt_end = chromatogram.back().getPos();
+              PeakIntegrator::PeakArea pa = pi.integratePeak(chromatogram, rt_start, rt_end);
+              trace_integrated_intensity = pa.area;
+            }
+            else if (chromatogram.size() == 1)
+            {
+              trace_integrated_intensity = chromatogram.begin()->getIntensity();
+            }
+            
+            masstrace_intensities.push_back(trace_integrated_intensity);
+            
+            // Compute intensity-weighted centroid RT and m/z for this mass trace
+            if (trace_intensity_sum > 0)
+            {
+              masstrace_centroid_rt.push_back(trace_rt_sum / trace_intensity_sum);
+              masstrace_centroid_mz.push_back(trace_mz_sum / trace_intensity_sum);
+            }
+            else
+            {
+              masstrace_centroid_rt.push_back(0.0);
+              masstrace_centroid_mz.push_back(0.0);
             }
 
             if ((mass_trace.width() == 0) || (mass_trace.height() == 0))
@@ -822,6 +934,12 @@ namespace OpenMS
           feature.setIntensity(peptide_intensities[peptide]);
           feature.setCharge(patterns[pattern].getCharge());
           feature.setOverallQuality(1.0);
+          
+          // Set mass trace metavalues (similar to FeatureFinderMetabo)
+          feature.setMetaValue("masstrace_intensity", masstrace_intensities);
+          feature.setMetaValue("masstrace_centroid_rt", masstrace_centroid_rt);
+          feature.setMetaValue("masstrace_centroid_mz", masstrace_centroid_mz);
+          feature.setMetaValue("num_of_masstraces", masstrace_intensities.size());
 
           // Check that the feature eluted long enough.
           // DBoundingBox<2> box = feature.getConvexHull().getBoundingBox();    // convex hull of the entire peptide feature
